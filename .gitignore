@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# organizer runtime artifact (per-folder undo log)
+.organize-undo.json
+
+# macOS
+.DS_Store
