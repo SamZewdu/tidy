@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tidy-organizer"
-version = "0.1.1"
+version = "0.1.2"
 description = "Rule-based folder auto-organizer with dry-run, undo, scan, and a GUI."
 readme = "README.md"
 requires-python = ">=3.9"

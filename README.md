@@ -71,6 +71,10 @@ tidy-files gui                    # launch the desktop app
 button fills in the messiest common folder for you. It calls the same core as the CLI,
 so behavior is identical.
 
+The GUI uses Tk, which some Python builds omit. If `tidy-files gui` reports Tk is
+missing, add it: `brew install python-tk` (Homebrew) or `sudo apt install python3-tk`
+(Debian/Ubuntu). The python.org installer bundles it. The CLI needs none of this.
+
 ## Categories
 
 Files are matched by extension into: **Images, Videos, Audio, Documents, Spreadsheets,

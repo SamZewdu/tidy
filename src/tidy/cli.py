@@ -117,8 +117,19 @@ def _cmd_undo(args) -> int:
 
 
 def _cmd_gui(args) -> int:
-    from .gui import main as gui_main  # lazy import so CLI works headless
-
+    try:
+        from .gui import main as gui_main  # lazy import so CLI works headless
+    except ImportError:
+        print(
+            "The GUI needs Tk, which your Python build is missing.\n"
+            "  • Homebrew Python:  brew install python-tk\n"
+            "  • Debian/Ubuntu:    sudo apt install python3-tk\n"
+            "  • Or use the python.org installer, which bundles Tk.\n"
+            "The command-line interface works without it "
+            "(try: tidy-files scan).",
+            file=sys.stderr,
+        )
+        return 1
     gui_main()
     return 0
 
