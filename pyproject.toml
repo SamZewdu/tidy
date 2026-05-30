@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tidy-organizer"
+version = "0.1.0"
+description = "Rule-based folder auto-organizer with dry-run, undo, scan, and a GUI."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Sam Zewdu", email = "samzew3@gmail.com" }]
+keywords = ["files", "organize", "cleanup", "downloads", "cli", "gui"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/SamZewdu/tidy"
+Repository = "https://github.com/SamZewdu/tidy"
+
+# `tidy` is the CLI; `tidy-gui` launches the desktop app without a console window.
+[project.scripts]
+tidy = "tidy.cli:main"
+
+[project.gui-scripts]
+tidy-gui = "tidy.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

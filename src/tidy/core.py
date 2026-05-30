@@ -1,21 +1,14 @@
-#!/usr/bin/env python3
-"""organize.py — rule-based folder auto-organizer.
+"""Core organizing logic — categorization, planning, applying, and undo.
 
-Sweeps a folder and files loose files into category subfolders (Images, Documents,
-Code, Archives, ...) by extension, optionally split further by date. Dry-run by
-default; only moves files when --apply is given, and writes an undo log so a run
-can be reversed with --undo.
-
-Standard library only.
+This module is I/O-light: functions return structured results instead of
+printing, so the CLI, scan, and GUI can all reuse them.
 """
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import json
 import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -40,7 +33,7 @@ DEFAULT_CATEGORY_MAP: dict[str, list[str]] = {
 OTHER_CATEGORY = "Other"
 
 
-def load_category_map(config_path: str | None) -> dict[str, list[str]]:
+def load_category_map(config_path: str | None = None) -> dict[str, list[str]]:
     """Built-in map, optionally merged with a user JSON of {Category: [ext, ...]}."""
     category_map = {k: list(v) for k, v in DEFAULT_CATEGORY_MAP.items()}
     if config_path:
@@ -61,6 +54,11 @@ def build_ext_lookup(category_map: dict[str, list[str]]) -> dict[str, str]:
     return lookup
 
 
+def managed_names(category_map: dict[str, list[str]]) -> set[str]:
+    """The set of folder names this tool manages (categories + Other)."""
+    return set(category_map) | {OTHER_CATEGORY}
+
+
 def category_for(path: Path, ext_lookup: dict[str, str]) -> str:
     ext = path.suffix.lower().lstrip(".")
     if not ext:
@@ -70,11 +68,11 @@ def category_for(path: Path, ext_lookup: dict[str, str]) -> str:
 
 def iter_candidates(
     folder: Path,
-    recursive: bool,
-    include_hidden: bool,
-    exclude: list[str],
-    managed_names: set[str],
-    self_path: Path,
+    *,
+    recursive: bool = False,
+    include_hidden: bool = False,
+    exclude: tuple[str, ...] = (),
+    managed: set[str],
 ) -> list[Path]:
     """Yield files eligible for organizing, applying skip rules."""
     walker = folder.rglob("*") if recursive else folder.glob("*")
@@ -82,15 +80,13 @@ def iter_candidates(
     for entry in walker:
         if not entry.is_file():
             continue
-        if entry.resolve() == self_path:
-            continue
         if entry.name == UNDO_FILENAME:
             continue
-        if not include_hidden and any(part.startswith(".") for part in entry.relative_to(folder).parts):
+        rel_parts = entry.relative_to(folder).parts
+        if not include_hidden and any(part.startswith(".") for part in rel_parts):
             continue
         # Idempotency: skip anything already inside a managed category folder.
-        rel_parts = entry.relative_to(folder).parts
-        if len(rel_parts) > 1 and rel_parts[0] in managed_names:
+        if len(rel_parts) > 1 and rel_parts[0] in managed:
             continue
         if any(fnmatch.fnmatch(entry.name, pat) for pat in exclude):
             continue
@@ -111,11 +107,23 @@ def resolve_collision(dest: Path, taken: set[Path]) -> Path:
         n += 1
 
 
-def plan(folder: Path, args, ext_lookup: dict[str, str], managed_names: set[str]):
+def plan(
+    folder: Path,
+    *,
+    ext_lookup: dict[str, str],
+    managed: set[str],
+    by_date: bool = False,
+    recursive: bool = False,
+    include_hidden: bool = False,
+    exclude: tuple[str, ...] = (),
+) -> tuple[list[tuple[Path, Path]], dict[str, int]]:
     """Return (moves, counts) where moves is a list of (src, dest)."""
-    self_path = Path(__file__).resolve()
     candidates = iter_candidates(
-        folder, args.recursive, args.include_hidden, args.exclude, managed_names, self_path
+        folder,
+        recursive=recursive,
+        include_hidden=include_hidden,
+        exclude=exclude,
+        managed=managed,
     )
     moves: list[tuple[Path, Path]] = []
     counts: dict[str, int] = {}
@@ -123,7 +131,7 @@ def plan(folder: Path, args, ext_lookup: dict[str, str], managed_names: set[str]
     for src in sorted(candidates):
         category = category_for(src, ext_lookup)
         dest_dir = folder / category
-        if args.by_date:
+        if by_date:
             mtime = datetime.fromtimestamp(src.stat().st_mtime)
             dest_dir = dest_dir / f"{mtime.year:04d}" / f"{mtime.month:02d}"
         dest = resolve_collision(dest_dir / src.name, taken)
@@ -135,24 +143,11 @@ def plan(folder: Path, args, ext_lookup: dict[str, str], managed_names: set[str]
     return moves, counts
 
 
-def render_dryrun(folder: Path, moves, counts) -> None:
-    if not moves:
-        print(f"Nothing to organize in {folder} — already tidy.")
-        return
-    print(f"Planned moves for {folder}:\n")
-    for src, dest in moves:
-        print(f"  {src.name}  ->  {dest.relative_to(folder)}")
-    print("\nSummary:")
-    for category in sorted(counts):
-        print(f"  {category}: {counts[category]}")
-    print(f"\n{len(moves)} file(s) — dry-run, nothing moved. Pass --apply to move.")
-
-
-def apply_moves(folder: Path, moves, copy: bool) -> None:
-    if not moves:
-        print(f"Nothing to organize in {folder} — already tidy.")
-        return
-    log: list[dict[str, str]] = []
+def apply_moves(
+    folder: Path, moves: list[tuple[Path, Path]], *, copy: bool = False
+) -> list[dict]:
+    """Move (or copy) files and write an undo log. Returns the log records."""
+    log: list[dict] = []
     for src, dest in moves:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if copy:
@@ -160,22 +155,20 @@ def apply_moves(folder: Path, moves, copy: bool) -> None:
         else:
             shutil.move(str(src), str(dest))
         log.append({"from": str(src), "to": str(dest), "copied": copy})
-    undo_path = folder / UNDO_FILENAME
-    undo_path.write_text(
-        json.dumps(
-            {"timestamp": datetime.now().isoformat(), "copy": copy, "moves": log},
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    verb = "Copied" if copy else "Moved"
-    print(f"{verb} {len(moves)} file(s). Undo log: {undo_path}")
-    if not copy:
-        print("Reverse with: --undo")
+    if log:
+        undo_path = folder / UNDO_FILENAME
+        undo_path.write_text(
+            json.dumps(
+                {"timestamp": datetime.now().isoformat(), "copy": copy, "moves": log},
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    return log
 
 
-def prune_empty_dirs(folder: Path, managed_names: set[str]) -> None:
-    for category in managed_names:
+def prune_empty_dirs(folder: Path, managed: set[str]) -> None:
+    for category in managed:
         root = folder / category
         if not root.exists():
             continue
@@ -186,11 +179,11 @@ def prune_empty_dirs(folder: Path, managed_names: set[str]) -> None:
             root.rmdir()
 
 
-def undo(folder: Path, managed_names: set[str]) -> None:
+def undo(folder: Path, managed: set[str]) -> tuple[int, int, bool] | None:
+    """Reverse the most recent run. Returns (restored, skipped, was_copy) or None."""
     undo_path = folder / UNDO_FILENAME
     if not undo_path.exists():
-        print(f"No undo log found at {undo_path}.")
-        return
+        return None
     data = json.loads(undo_path.read_text(encoding="utf-8"))
     was_copy = data.get("copy", False)
     restored = skipped = 0
@@ -210,53 +203,6 @@ def undo(folder: Path, managed_names: set[str]) -> None:
         src.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(dest), str(src))
         restored += 1
-    prune_empty_dirs(folder, managed_names)
+    prune_empty_dirs(folder, managed)
     undo_path.unlink()
-    action = "removed" if was_copy else "restored"
-    print(f"Undo complete: {restored} file(s) {action}, {skipped} skipped.")
-
-
-def parse_args(argv=None):
-    p = argparse.ArgumentParser(
-        prog="organize.py",
-        description="Rule-based folder auto-organizer (dry-run by default).",
-    )
-    p.add_argument("folder", help="Folder to organize.")
-    p.add_argument("--apply", action="store_true", help="Actually move files (default: dry-run preview).")
-    p.add_argument("--by-date", action="store_true", help="Nest as Category/YYYY/MM using file mtime.")
-    p.add_argument("--copy", action="store_true", help="Copy instead of move (originals stay put).")
-    p.add_argument("--recursive", action="store_true", help="Descend into sub-directories.")
-    p.add_argument("--include-hidden", action="store_true", help="Include dotfiles.")
-    p.add_argument("--exclude", action="append", default=[], metavar="PATTERN",
-                   help="Glob to skip (repeatable), e.g. --exclude '*.part'.")
-    p.add_argument("--undo", action="store_true", help="Reverse the most recent run in this folder.")
-    p.add_argument("--config", metavar="FILE", help="JSON overriding/extending the category map.")
-    return p.parse_args(argv)
-
-
-def main(argv=None) -> int:
-    args = parse_args(argv)
-    folder = Path(args.folder).expanduser().resolve()
-    if not folder.is_dir():
-        print(f"Error: not a directory: {folder}", file=sys.stderr)
-        return 2
-
-    category_map = load_category_map(args.config)
-    managed_names = set(category_map) | {OTHER_CATEGORY}
-
-    if args.undo:
-        undo(folder, managed_names)
-        return 0
-
-    ext_lookup = build_ext_lookup(category_map)
-    moves, counts = plan(folder, args, ext_lookup, managed_names)
-
-    if args.apply:
-        apply_moves(folder, moves, args.copy)
-    else:
-        render_dryrun(folder, moves, counts)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return restored, skipped, was_copy
