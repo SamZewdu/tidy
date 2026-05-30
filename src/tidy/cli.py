@@ -1,11 +1,11 @@
 """Command-line interface for tidy.
 
 Usage:
-    tidy <folder> [options]     # organize (default action)
-    tidy organize <folder> ...  # same, explicit
-    tidy scan [paths...]        # suggest folders worth tidying
-    tidy undo <folder>          # reverse the most recent run
-    tidy gui                    # launch the desktop GUI
+    tidy-files <folder> [options]     # organize (default action)
+    tidy-files organize <folder> ...  # same, explicit
+    tidy-files scan [paths...]        # suggest folders worth tidying
+    tidy-files undo <folder>          # reverse the most recent run
+    tidy-files gui                    # launch the desktop GUI
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def _render_scan(results) -> None:
     if messy:
         print("\nSuggested:")
         for a in messy:
-            print(f"  tidy organize \"{a.folder}\"")
+            print(f"  tidy-files organize \"{a.folder}\"")
     else:
         print("\nEverything looks reasonably tidy. Nice.")
 
@@ -90,7 +90,7 @@ def _cmd_organize(args) -> int:
     verb = "Copied" if args.copy else "Moved"
     print(f"{verb} {len(log)} file(s). Undo log: {folder / core.UNDO_FILENAME}")
     if not args.copy:
-        print("Reverse with: tidy undo \"%s\"" % folder)
+        print("Reverse with: tidy-files undo \"%s\"" % folder)
     return 0
 
 
@@ -128,10 +128,10 @@ def _cmd_gui(args) -> int:
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="tidy",
+        prog="tidy-files",
         description="Rule-based folder auto-organizer (dry-run by default).",
     )
-    parser.add_argument("--version", action="version", version=f"tidy {__version__}")
+    parser.add_argument("--version", action="version", version=f"tidy-files {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_common(p):

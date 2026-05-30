@@ -22,12 +22,13 @@ classifiers = [
 Homepage = "https://github.com/SamZewdu/tidy"
 Repository = "https://github.com/SamZewdu/tidy"
 
-# `tidy` is the CLI; `tidy-gui` launches the desktop app without a console window.
+# `tidy-files` is the CLI; `tidy-files-gui` launches the desktop app without a console window.
+# (Named to avoid colliding with macOS's built-in HTML Tidy, which owns `tidy`.)
 [project.scripts]
-tidy = "tidy.cli:main"
+tidy-files = "tidy.cli:main"
 
 [project.gui-scripts]
-tidy-gui = "tidy.gui:main"
+tidy-files-gui = "tidy.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
